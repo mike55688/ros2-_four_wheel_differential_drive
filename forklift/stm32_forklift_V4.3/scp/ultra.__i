@@ -1,0 +1,6 @@
+--c99 -c --cpu Cortex-M3 -g -O0 --apcs=interwork -I ..\System\delay -I ..\System\sys -I ..\System\usart -I ..\Hardware\LED -I ..\Hardware\KEY -I ..\Hardware\OLED -I ..\Hardware\IIC -I ..\Hardware\ADC -I ..\Hardware\ENCODER -I ..\Hardware\MOTOR -I ..\Hardware\EXTI -I ..\Hardware\DMP -I ..\Hardware\MPU6050 -I ..\Hardware\Ultra -I ..\Hardware\Track --c99
+-I.\RTE\_Target_1
+-IE:\Keil_v5\ARM\Pack\ARM\CMSIS\5.7.0\CMSIS\Core\Include
+-IE:\Keil_v5\ARM\Pack\Keil\STM32F1xx_DFP\1.0.4\Device\Include
+-D__UVISION_VERSION="530" -D_RTE_ -DSTM32F10X_MD -D_RTE_ -DSTM32F10X_MD
+-o ..\scp\ultra.o --omf_browse ..\scp\ultra.crf --depend ..\scp\ultra.d "..\Hardware\Ultra\Ultra.C"

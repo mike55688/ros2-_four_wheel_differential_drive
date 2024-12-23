@@ -1,0 +1,10 @@
+int32 height1
+int32 length1
+int32 height2
+int32 length2
+bool claw1
+bool claw2
+bool enable_motor1
+bool enable_motor2
+bool enable_motor3
+bool enable_motor4

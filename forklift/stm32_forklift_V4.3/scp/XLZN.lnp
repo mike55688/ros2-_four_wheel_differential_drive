@@ -1,0 +1,14 @@
+--cpu Cortex-M3
+"..\scp\startup_stm32f10x_md.o"
+"..\scp\adc.o"
+"..\scp\key.o"
+"..\scp\led.o"
+"..\scp\dma.o"
+"..\scp\delay.o"
+"..\scp\sys.o"
+"..\scp\usart.o"
+"..\scp\main.o"
+--strict --scatter "..\scp\XLZN.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "..\scp\XLZN.map" -o ..\scp\XLZN.axf
