@@ -2,7 +2,7 @@
     <!-- 啟動採摘器節點 -->
     <node
         name="manipulator_controller"
-        pkg="forklift_demo"
+        pkg="cut_pliers"
         exec="psub_and_RT"
         output="screen">
         <param name="serial_port" value="/dev/ttyUSB0" />

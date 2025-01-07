@@ -24,7 +24,7 @@ using std::placeholders::_1;
 using std::placeholders::_2;
 serial::Serial ros_ser;
 #define to_rad  0.017453f  //角度转弧度
- 
+void initialize_motor();
 float V_x,V_y,V_z;
 float x_step=0.3,y_step=0.3,z_step=0.3;  //設定xyz軸起始加速度
 uint8_t Flag_Mode=0;
@@ -50,6 +50,7 @@ void process_data_and_get_odom(void);
 void check_and_stop_vehicle();
 rclcpp::Time last_command_time;  // 用于记录最后一次命令的时间
 bool speed_command_received = false;  // 用于标记是否接收到速度命令
+float dfbljblvdflb;
 /*###################################################################################*/  
     double x = 0.0;
 
@@ -263,50 +264,56 @@ private:
 class Velpublisher : public rclcpp::Node
 {
 public:
-  Velpublisher()
-      : Node("vel_publisher_" + std::to_string(std::rand() % 1000)), count_(0), vx(0.0), vy(0.0), vth(0.0)
-  {
-    // 原有的 cmd_vel 發布器
-    publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 2);
-
-    // 設置計時器 (保留原有的發布邏輯)
-    timer_ = this->create_wall_timer(25ms, std::bind(&Velpublisher::timer_callback, this)); // 40HZ
-
-    // 新增 cmd_vel 訂閱器
-    cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
-        "/cmd_vel", 10, std::bind(&Velpublisher::cmd_vel_callback, this, std::placeholders::_1));
-  }
+    Velpublisher()
+        : Node("vel_publisher_" + std::to_string(std::rand() % 1000)), vx(0.0), vy(0.0), vth(0.0)
+    {
+        publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+        timer_ = this->create_wall_timer(25ms, std::bind(&Velpublisher::timer_callback, this));
+        cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
+            "/cmd_vel", 10, std::bind(&Velpublisher::cmd_vel_callback, this, std::placeholders::_1));
+    }
 
 private:
-  void timer_callback()
-  {
-    auto message = geometry_msgs::msg::Twist();
+    void timer_callback()
+    {
+        auto message = geometry_msgs::msg::Twist();
 
-    // 發布固定速度 (原有功能)
-    message.linear.x = vx;
-    message.linear.y = vy;
-    message.angular.z = vth;
+        message.linear.x = vx;
+        message.linear.y = vy;
+        message.angular.z = vth;
 
-    publisher_->publish(message);
-  }
+        publisher_->publish(message);
 
-  void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
-  {
-    // 訂閱 /cmd_vel 更新速度值
-    vx = msg->linear.x;
-    vy = msg->linear.y;
-    vth = msg->angular.z;
+        // 调试输出
+        // std::cout << "Timer Publish: vx=" << vx << ", vy=" << vy << ", vth=" << vth << std::endl;
 
-    RCLCPP_INFO(this->get_logger(), "Received cmd_vel: linear.x = %f, angular.z = %f", vx, vth);
-  }
+        if (vx != 0.0 || vy != 0.0 || vth != 0.0) {
+            Data_US[0] = 1;
+            Data_US[1] = vx + vth;
+            Data_US[2] = vx - vth;
+            Data_US[3] = vx - vth;
+            Data_US[4] = vx + vth;
 
-  rclcpp::TimerBase::SharedPtr timer_;
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr publisher_;
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
+            send_data();
+        }
+    }
 
-  double vx, vy, vth; // 線速度與角速度
-  size_t count_;
+    void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
+    {
+        vx = msg->linear.x;
+        vy = msg->linear.y;
+        vth = msg->angular.z;
+
+        // std::cout << "cmd_vel received: vx=" << vx << ", vy=" << vy << ", vth=" << vth << std::endl;
+    }
+
+    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr publisher_;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
+
+    double vx, vy, vth;
 };
+
 /*###################################################################################*/
 /*###################################################################################*/
 /*###################################################################################*/
@@ -329,48 +336,33 @@ private:
  /*###################################################################################*/
 /*###################################################################################*/
 /*###################################################################################*/
-int main(int argc, char *argv[])
-{
-  rclcpp::Rate main_loop_rate(10);  // 设置循环频率（例如每秒 10 次）
+int main(int argc, char *argv[]) {
+    rclcpp::init(argc, argv);  // 初始化 ROS2
 
-  rclcpp::init(argc, argv);//初始化 ROS2 客户端
-/*
-  auto t1 = std::chrono::system_clock::now();// 单位秒
-  time_t tt = std::chrono::system_clock::to_time_t ( t1 );
-  std::cout<< "Time:" << tt <<std::endl;  
-*/ 
-/*
-  auto t = rclcpp::Clock().now();// 单位秒,纳秒
-  std::cout<< "Time:" << t.seconds() << t.nanoseconds() <<std::endl; 
-*/ 
-        
-  ros_ser.setPort("/dev/ttyUSB0");//端口号
-  ros_ser.setBaudrate(115200);//波特率
-  serial::Timeout to =serial::Timeout::simpleTimeout(100);//超时判定
-  ros_ser.setTimeout(to);
-  try
-  {
-    ros_ser.open();
-  }
-  catch(serial::IOException &e)
-  {
-    std::cout<<"unable to open"<<std::endl;
-    return -1;
-  }
-  if(ros_ser.isOpen())
-  {
-    std::cout<<"/dev/ttyUSB0 is opened."<<std::endl;
-  }
-  else
-  {
-    return -1;  
-  }
-  
-  memset(Data_US, 0, sizeof(float)*12);		
-  send_data();  
-  
-/*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/   
-/*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/ 
+    // 配置串口
+    ros_ser.setPort("/dev/ttyUSB0");
+    ros_ser.setBaudrate(115200);
+    serial::Timeout to = serial::Timeout::simpleTimeout(100);
+    ros_ser.setTimeout(to);
+
+    try {
+        ros_ser.open();
+    } catch (serial::IOException &e) {
+        std::cout << "Unable to open serial port" << std::endl;
+        return -1;
+    }
+
+    if (!ros_ser.isOpen()) {
+        std::cout << "Serial port not opened!" << std::endl;
+        return -1;
+    }
+    std::cout << "/dev/ttyUSB0 is opened." << std::endl;
+
+    // 初始化數據
+    memset(Data_US, 0, sizeof(float) * 12);
+    send_data();
+
+    // 創建 ROS2 節點
     auto minimal_subscriber = std::make_shared<MinimalSubscriber>();
     auto pos_publisher = std::make_shared<Pospublisher>();
     auto vel_publisher = std::make_shared<Velpublisher>();
@@ -383,31 +375,42 @@ int main(int argc, char *argv[])
     executor.add_node(vel_publisher);
     executor.add_node(odom_publisher);
 
-      rclcpp::Rate loop_rate(150);//设置循环间隔，即代码执行频率 150 HZ,
-      while(rclcpp::ok()){
-           check_and_stop_vehicle();
+    // 主循環頻率
+    rclcpp::Rate loop_rate(50);  // 設置主循環頻率為 50 Hz（較為合理）
 
-           receive_and_process_data(); //接收并处理来自下位机的数据  
-				
-           process_data_and_get_odom();//根据速度姿态信息处理获得里程计数据
-				
-           // 通过ROS发布tf信息 ,未完成
-           // 通过ROS发布里程计信息
-          // 非阻塞執行節點
-          executor.spin_some();
-          
-          last_time = current_time;//保存为上次时间       
-          process_and_send_data(aa);//处理键盘的指令并发送数据到下位机 
+    while (rclcpp::ok()) {
+        auto loop_start = rclcpp::Clock().now();  // 記錄循環開始時間
 
-         loop_rate.sleep();//循环延时时间             
-      }
-      
-/*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/     
-  memset(Data_US, 0, sizeof(float)*12);
-  send_data();
-  ros_ser.close();//
-  rclcpp::shutdown();//释放资源； 
-  return 0;
+        // ROS2 消息處理
+        executor.spin_some();  // 處理所有 ROS2 消息，避免漏掉重要指令
+
+        // 接收下位機數據
+        receive_and_process_data();
+
+        // 更新里程計數據
+        process_data_and_get_odom();
+
+        // 發送速度控制數據（按需執行）
+        // process_and_send_data(aa);
+
+        // 停止超時處理
+        // check_and_stop_vehicle();
+
+        auto loop_end = rclcpp::Clock().now();
+        double loop_duration = (loop_end - loop_start).seconds();
+
+        // 調試輸出主循環執行時間
+        std::cout << "Main loop duration: " << loop_duration << " seconds" << std::endl;
+
+        // loop_rate.sleep();  // 保持主循環穩定頻率
+    }
+
+    // 清理資源
+    memset(Data_US, 0, sizeof(float) * 12);
+    send_data();
+    ros_ser.close();
+    rclcpp::shutdown();
+    return 0;
 }
 //************************串口发送12个数据**************************// 
 //************************串口发送12个数据**************************// 
@@ -717,6 +720,7 @@ void receive_and_process_data(void)
            std::cout<< "[20] 主循环频数a:" << (uint16_t)a <<std::endl;
            std::cout<< "[21] 有效接收数b:" << (uint16_t)b <<std::endl;                                        
            std::cout<< "[22] a/b:" <<  (float)a/b <<std::endl;
+           std::cout<< "test line x : "<<(float)dfbljblvdflb<<std::endl;
            if(b>5000)b=b/10,a=a/10;
         
            std::cout<< "-----------------------" <<std::endl;           														
@@ -775,6 +779,10 @@ void process_data_and_get_odom(void){
             			
 
 }
+
+
+
+
 
 
 

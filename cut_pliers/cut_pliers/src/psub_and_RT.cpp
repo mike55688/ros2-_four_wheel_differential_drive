@@ -15,7 +15,6 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include "tf2_ros/transform_listener.h"
 #include "tf2_ros/buffer.h"
-#include "custom_msgs/msg/cmd_cut_pliers.hpp"
 
 using namespace std::chrono_literals;//命名空间
 using std::placeholders::_1;
@@ -37,7 +36,7 @@ uint16_t a,b;
 void send_data(void);//串口发送协议函数
 void process_and_send_data(char num);
 void receive_and_process_data(void);
-void initialize_arms();
+
 int32_t S_H1;
 int32_t S_L1;
 int32_t S_H2;
@@ -59,88 +58,6 @@ uint8_t R_En3;
 uint8_t R_En4;
 uint8_t R_C1;
 uint8_t R_C2;
-
-/*###################################################################################*/
-/*###################################################################################*/
-/*###################################################################################*/
-class CmdCutPliersPublisher : public rclcpp::Node
-{
-public:
-  CmdCutPliersPublisher()
-      : Node("cmd_cut_pliers_publisher_" + std::to_string(std::rand() % 1000)),
-        count_(0), height1(0), length1(0), height2(0), length2(0),
-        target_height1(0), target_length1(0), target_height2(0), target_length2(0),
-        claw1(false), claw2(false), step_size(10)
-  {
-    pub_cmd_cut_pliers_ = this->create_publisher<custom_msgs::msg::CmdCutPliers>("/cmd_cut_pliers", 10);
-
-    sub_cmd_cut_pliers_ = this->create_subscription<custom_msgs::msg::CmdCutPliers>(
-        "/cmd_cut_pliers", 10, std::bind(&CmdCutPliersPublisher::cmd_cut_pliers_callback, this, std::placeholders::_1));
-
-    timer_ = this->create_wall_timer(100ms, std::bind(&CmdCutPliersPublisher::timer_callback, this));
-  }
-
-private:
-  void cmd_cut_pliers_callback(const custom_msgs::msg::CmdCutPliers::SharedPtr msg) {
-    target_height1 = msg->height1;
-    target_length1 = msg->length1;
-    target_height2 = msg->height2;
-    target_length2 = msg->length2;
-    S_C1 = msg->claw1;
-    S_C2 = msg->claw2;
-
-    S_En1 = msg->enable_motor1;
-    S_En2 = msg->enable_motor2;
-    S_En3 = msg->enable_motor3;
-    S_En4 = msg->enable_motor4;
-  }
-
-  void timer_callback()
-  { 
-    auto msg = custom_msgs::msg::CmdCutPliers();
-
-    if (S_H1 < target_height1) S_H1 += std::min(step_size, target_height1 - S_H1);
-    else if (S_H1 > target_height1) S_H1 -= std::min(step_size, S_H1 - target_height1);
-
-    if (S_L1 < target_length1) S_L1 += std::min(step_size, target_length1 - S_L1);
-    else if (S_L1 > target_length1) S_L1 -= std::min(step_size, S_L1 - target_length1);
-
-    if (S_H2 < target_height2) S_H2 += std::min(step_size, target_height2 - S_H2);
-    else if (S_H2 > target_height2) S_H2 -= std::min(step_size, S_H2 - target_height2);
-
-    if (S_L2 < target_length2) S_L2 += std::min(step_size, target_length2 - S_L2);
-    else if (S_L2 > target_length2) S_L2 -= std::min(step_size, S_L2 - target_length2);
-
-    if (S_H1 < 0) S_H1 = 0;
-    if (S_H1 > 280) S_H1 = 280;
-    if (S_L1 < 0) S_L1 = 0;
-    if (S_L1 > 440) S_L1 = 440;
-    if (S_H2 < 0) S_H2 = 0;
-    if (S_H2 > 280) S_H2 = 280;
-    if (S_L2 < 0) S_L2 = 0;
-    if (S_L2 > 440) S_L2 = 440;
-
-    msg.height1 = S_H1;
-    msg.length1 = S_L1;
-    msg.height2 = S_H2;
-    msg.length2 = S_L2;
-    msg.claw1 = S_C1;
-    msg.claw2 = S_C2;
-
-    pub_cmd_cut_pliers_->publish(msg);
-    send_data();
-  }
-
-  rclcpp::TimerBase::SharedPtr timer_;
-  rclcpp::Publisher<custom_msgs::msg::CmdCutPliers>::SharedPtr pub_cmd_cut_pliers_;
-  rclcpp::Subscription<custom_msgs::msg::CmdCutPliers>::SharedPtr sub_cmd_cut_pliers_;
-
-  int height1, length1, height2, length2;
-  int target_height1, target_length1, target_height2, target_length2;
-  int step_size;
-  bool claw1, claw2;
-  size_t count_;
-};
 
 
 /*###################################################################################*/
@@ -200,25 +117,19 @@ int main(int argc, char *argv[])
     return -1;
   }
   
-      // 在這裡調用初始化函數
-    initialize_arms();
+   
 /*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/   
 /*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/ 
-  auto minimal_subscriber = std::make_shared<MinimalSubscriber>();
-  auto cmd_cut_pliers_publisher = std::make_shared<CmdCutPliersPublisher>();
-
+  auto node1 = std::make_shared<MinimalSubscriber>(); 
+    
       rclcpp::Rate loop_rate(150);//设置循环间隔，即代码执行频率 150 HZ,
       while(rclcpp::ok()){
            receive_and_process_data(); //接收并处理来自下位机的数据     
                        
-				    // 調用 spin_some 函數處理 ROS 回調
-           rclcpp::spin_some(minimal_subscriber);
-           rclcpp::spin_some(cmd_cut_pliers_publisher);
-          //  rclcpp::spin(cmd_cut_pliers_publisher);
-
+           rclcpp::spin_some(node1);//调用spin_some函数，并传入节点对象指针
+				
            process_and_send_data(aa);//处理键盘的指令并发送数据到下位机            
-
-
+                          
          loop_rate.sleep();//循环延时时间             
       }
       
@@ -456,27 +367,6 @@ void receive_and_process_data(void)
            std::cout<< "-----------------------" <<std::endl;           														
                      }                         
 }
-
-
-
-void initialize_arms()
-{
-    // 初始化所有手臂參數
-    S_H1 = 0; // 手臂1的高度
-    S_L1 = 0; // 手臂1的長度
-    S_H2 = 0; // 手臂2的高度
-    S_L2 = 0; // 手臂2的長度
-    S_En1 = 1; // 啟用電機1
-    S_En2 = 1; // 啟用電機2
-    S_En3 = 1; // 啟用電機3
-    S_En4 = 1; // 啟用電機4
-    S_C1 = 0;  // 爪子1張開
-    S_C2 = 0;  // 爪子2張開
-
-    send_data(); // 發送初始化數據到下位機
-    RCLCPP_INFO(rclcpp::get_logger("initialize_arms"), "Arms initialized with default values.");
-}
-
 
 
 
