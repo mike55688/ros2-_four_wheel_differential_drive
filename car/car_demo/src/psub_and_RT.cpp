@@ -48,6 +48,7 @@ void process_and_send_data(char num);
 void receive_and_process_data(void);
 void process_data_and_get_odom(void);
 void check_and_stop_vehicle();
+
 rclcpp::Time last_command_time;  // 用于记录最后一次命令的时间
 bool speed_command_received = false;  // 用于标记是否接收到速度命令
 float dfbljblvdflb;
@@ -267,7 +268,7 @@ public:
     Velpublisher()
         : Node("vel_publisher_" + std::to_string(std::rand() % 1000)), vx(0.0), vy(0.0), vth(0.0)
     {
-        publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+        publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 2);
         timer_ = this->create_wall_timer(25ms, std::bind(&Velpublisher::timer_callback, this));
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
             "/cmd_vel", 10, std::bind(&Velpublisher::cmd_vel_callback, this, std::placeholders::_1));
@@ -297,15 +298,39 @@ private:
             send_data();
         }
     }
+void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
+{
+    vx = msg->linear.x;
+    vy = msg->linear.y;
+    vth = msg->angular.z;
 
-    void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
-    {
-        vx = msg->linear.x;
-        vy = msg->linear.y;
-        vth = msg->angular.z;
+    // 當速度全為 0，立即停止車輛
+    if (vx == 0.0 && vy == 0.0 && vth == 0.0) {
+        speed_A = 0.0;
+        speed_B = 0.0;
+        speed_C = 0.0;
+        speed_D = 0.0;
 
-        // std::cout << "cmd_vel received: vx=" << vx << ", vy=" << vy << ", vth=" << vth << std::endl;
+        Data_US[0] = 1;  // 確保啟動電機
+        Data_US[1] = 0.0;  // 停止速度
+        Data_US[2] = 0.0;
+        Data_US[3] = 0.0;
+        Data_US[4] = 0.0;
+
+        send_data();  // 發送停止指令
+        std::cout << "[DEBUG] Stop command sent!" << std::endl;
+    } else {
+        // 正常處理速度
+        Data_US[0] = 1;  // 確保啟動電機
+        Data_US[1] = vx + vth;
+        Data_US[2] = vx - vth;
+        Data_US[3] = vx - vth;
+        Data_US[4] = vx + vth;
+
+        send_data();  // 發送速度指令
     }
+}
+
 
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr publisher_;
@@ -340,7 +365,7 @@ int main(int argc, char *argv[]) {
     rclcpp::init(argc, argv);  // 初始化 ROS2
 
     // 配置串口
-    ros_ser.setPort("/dev/ttyUSB0");
+    ros_ser.setPort("/dev/ttyUSB1");
     ros_ser.setBaudrate(115200);
     serial::Timeout to = serial::Timeout::simpleTimeout(100);
     ros_ser.setTimeout(to);
@@ -375,35 +400,19 @@ int main(int argc, char *argv[]) {
     executor.add_node(vel_publisher);
     executor.add_node(odom_publisher);
 
-    // 主循環頻率
-    rclcpp::Rate loop_rate(50);  // 設置主循環頻率為 50 Hz（較為合理）
+    // 创建独立线程处理串口数据接收
+    std::thread serial_thread([] {
+        while (rclcpp::ok()) {
+            receive_and_process_data();  // 独立线程处理串口数据接收
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));  // 控制频率
+        }
+    });
 
-    while (rclcpp::ok()) {
-        auto loop_start = rclcpp::Clock().now();  // 記錄循環開始時間
+    // 主线程运行 ROS 消息处理
+    executor.spin();
 
-        // ROS2 消息處理
-        executor.spin_some();  // 處理所有 ROS2 消息，避免漏掉重要指令
-
-        // 接收下位機數據
-        receive_and_process_data();
-
-        // 更新里程計數據
-        process_data_and_get_odom();
-
-        // 發送速度控制數據（按需執行）
-        // process_and_send_data(aa);
-
-        // 停止超時處理
-        // check_and_stop_vehicle();
-
-        auto loop_end = rclcpp::Clock().now();
-        double loop_duration = (loop_end - loop_start).seconds();
-
-        // 調試輸出主循環執行時間
-        std::cout << "Main loop duration: " << loop_duration << " seconds" << std::endl;
-
-        // loop_rate.sleep();  // 保持主循環穩定頻率
-    }
+    // 等待串口线程结束
+    serial_thread.join();
 
     // 清理資源
     memset(Data_US, 0, sizeof(float) * 12);
@@ -417,31 +426,35 @@ int main(int argc, char *argv[]) {
 //************************串口发送12个数据**************************// 
 void send_data(void)
 {
-    uint8_t len=12;
+    uint8_t len = 12;
     unsigned char tbuf[53];
-    unsigned char *p;				
-    for(uint8_t i=0;i<len;i++){
-	      p=(unsigned char *)&Data_US[i];
-        tbuf[4*i+4]=(unsigned char)(*(p+3));
-        tbuf[4*i+5]=(unsigned char)(*(p+2));
-        tbuf[4*i+6]=(unsigned char)(*(p+1));
-        tbuf[4*i+7]=(unsigned char)(*(p+0));
-    }						
-//fun:功能字 0XA0~0XAF
-//data:数据缓存区，48字节
-//len:data区有效数据个数
-    tbuf[len*4+4]=0;  //校验位置零
-    tbuf[0]=0XAA;   //帧头
-    tbuf[1]=0XAA;   //帧头
-    tbuf[2]=0XF1;    //功能字
-    tbuf[3]=len*4;    //数据长度
-    for(uint8_t j=0;j<(len*4+4);j++)tbuf[len*4+4]+=tbuf[j]; //计算和校验  
-    /*for (uint8_t k = 0; k < (len*4+5); k++)
-    {std::cout <<  "十六进制:" <<std::endl;std::cout<< std::hex << (tbuf[k]&0xff)<< " ";}     std::cout<<std::endl; */ 
-  try{ros_ser.write(tbuf, len*4+5);}//发送数据下位机(数组，字节数) 
-  catch (serial::IOException& e){std::cout<<"Unable to send data through serial port"<<std::endl;}
-  //如果发送数据失败，打印错误信息  
-}  
+    unsigned char *p;
+
+    for (uint8_t i = 0; i < len; i++) {
+        p = (unsigned char *)&Data_US[i];
+        tbuf[4 * i + 4] = (unsigned char)(*(p + 3));
+        tbuf[4 * i + 5] = (unsigned char)(*(p + 2));
+        tbuf[4 * i + 6] = (unsigned char)(*(p + 1));
+        tbuf[4 * i + 7] = (unsigned char)(*(p + 0));
+    }
+
+    tbuf[len * 4 + 4] = 0;  // 校驗位
+    tbuf[0] = 0XAA;         // 帧头
+    tbuf[1] = 0XAA;         // 帧头
+    tbuf[2] = 0XF1;         // 功能字
+    tbuf[3] = len * 4;      // 数据长度
+    for (uint8_t j = 0; j < (len * 4 + 4); j++) {
+        tbuf[len * 4 + 4] += tbuf[j];  // 计算校验和
+    }
+
+    try {
+        ros_ser.write(tbuf, len * 4 + 5);  // 發送數據
+        std::cout << "[DEBUG] Data sent to lower board!" << std::endl;
+    } catch (serial::IOException &e) {
+        std::cout << "Unable to send data through serial port" << std::endl;
+    }
+}
+
 //************************处理键盘的指令并发送数据到下位机**************************//
 //************************处理键盘的指令并发送数据到下位机**************************// 
 //************************处理键盘的指令并发送数据到下位机**************************//  
@@ -786,6 +799,24 @@ void process_data_and_get_odom(void){
 
 
 
+void stop_vehicle_immediately()
+{
+    // 清零速度
+    speed_A = 0.0;
+    speed_B = 0.0;
+    speed_C = 0.0;
+    speed_D = 0.0;
+
+    // 清空指令數據
+    Data_US[0] = 1;  // 確保啟動電機
+    Data_US[1] = 0.0;
+    Data_US[2] = 0.0;
+    Data_US[3] = 0.0;
+    Data_US[4] = 0.0;
+
+    send_data();  // 發送停止指令
+    std::cout << "[DEBUG] Vehicle stopped immediately." << std::endl;
+}
 
 
 

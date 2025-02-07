@@ -22,6 +22,22 @@ find_package(custom_msgs REQUIRED)
 ament_package()
 
 # Add executables
+# 添加 test_node 可执行文件
+add_executable(test_node src/test.cpp)
+
+# 声明依赖关系
+ament_target_dependencies(test_node
+  rclcpp
+  serial
+  custom_msgs
+  sensor_msgs
+  message_filters
+  geometry_msgs
+  turtlesim
+  tf2
+  tf2_ros
+)
+
 add_executable(psub_and_RT src/psub_and_RT.cpp)
 ament_target_dependencies(psub_and_RT 
   rclcpp 
@@ -58,3 +74,8 @@ install(TARGETS
 # Install directories
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME})
+
+# 安装 test_node
+install(TARGETS 
+  test_node
+  DESTINATION lib/${PROJECT_NAME})

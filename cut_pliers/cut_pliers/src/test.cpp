@@ -38,7 +38,7 @@ void send_data(void);
 void process_and_send_data(char num);
 void receive_and_process_data(void);
 void initialize_arms();
-void test();
+
 // 控制手臂1的目標位置與參數
 int32_t S_H1;
 int32_t S_L1;
@@ -88,8 +88,8 @@ private:
     target_height1 = msg->height1;
     target_length1 = msg->length1;
     S_C1 = msg->claw1;
-    S_En1 = msg->enable_motor1;
-    S_En2 = msg->enable_motor2;
+    S_En1 = 1;
+    S_En2 = 1;
   }
 
   // 定時回呼：邊界檢查後將數據封包並呼叫 send_data() 發送到下位機
@@ -122,6 +122,37 @@ private:
   bool claw1;
   size_t count_;
 };
+
+
+//
+/*###################################################################################
+  ArmStatusPublisher 節點：發布手臂當前狀態到 /arm_current_status 主題
+###################################################################################*/
+class ArmStatusPublisher : public rclcpp::Node
+{
+public:
+  ArmStatusPublisher()
+      : Node("arm_status_publisher")
+  {
+    pub_arm_status_ = this->create_publisher<custom_msgs::msg::CmdCutPliers>("/arm_current_status", 10);
+    timer_ = this->create_wall_timer(100ms, std::bind(&ArmStatusPublisher::timer_callback, this));
+  }
+
+private:
+  // 在定時器回調中，使用全域變數 R_H1, R_L1, R_C1 發布手臂當前狀態
+  void timer_callback() {
+    auto msg = custom_msgs::msg::CmdCutPliers();
+    msg.height1 = R_H1;   // 來自 receive_and_process_data() 更新的手臂高度
+    msg.length1 = R_L1;   // 來自 receive_and_process_data() 更新的手臂長度
+    msg.claw1 = (R_C1 != 0);  // 根據 R_C1 判斷爪子狀態，非 0 為 true
+    pub_arm_status_->publish(msg);
+    RCLCPP_INFO(this->get_logger(), "Publishing arm status: height=%d, length=%d, claw=%d", R_H1, R_L1, (R_C1 != 0));
+  }
+
+  rclcpp::Publisher<custom_msgs::msg::CmdCutPliers>::SharedPtr pub_arm_status_;
+  rclcpp::TimerBase::SharedPtr timer_;
+};
+
 
 /*###################################################################################
   MinimalSubscriber 節點：訂閱 "Keyboard" topic 接收鍵盤指令
@@ -174,13 +205,17 @@ int main(int argc, char *argv[])
 
   auto minimal_subscriber = std::make_shared<MinimalSubscriber>();
   auto cmd_cut_pliers_publisher = std::make_shared<CmdCutPliersPublisher>();
+  auto arm_status_publisher = std::make_shared<ArmStatusPublisher>();
 
-  rclcpp::Rate loop_rate(100);
+  
+  rclcpp::Rate loop_rate(50);
 
   while (rclcpp::ok()){
     
     receive_and_process_data();  // 接收並處理下位機數據     
     rclcpp::spin_some(cmd_cut_pliers_publisher);
+    rclcpp::spin_some(arm_status_publisher);  // ✅ 讓手臂當前狀態定期發布
+
     // process_and_send_data(aa);     // 根據鍵盤指令處理並發送數據
   }
       
@@ -413,5 +448,4 @@ void initialize_arms()
 
     send_data(); // 發送初始化數據到下位機
 }
-
 

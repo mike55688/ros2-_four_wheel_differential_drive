@@ -95,20 +95,30 @@ private:
     S_En4 = msg->enable_motor4;
   }
 
-void timer_callback() {
+  void timer_callback()
+  { 
     auto msg = custom_msgs::msg::CmdCutPliers();
 
-    // 一次到位
-    S_H1 = target_height1;
-    S_L1 = target_length1;
-    S_H2 = target_height2;
-    S_L2 = target_length2;
+    if (S_H1 < target_height1) S_H1 += std::min(step_size, target_height1 - S_H1);
+    else if (S_H1 > target_height1) S_H1 -= std::min(step_size, S_H1 - target_height1);
 
-    // 邊界檢查
-    S_H1 = std::clamp(S_H1, 0, 280);
-    S_L1 = std::clamp(S_L1, 0, 440);
-    S_H2 = std::clamp(S_H2, 0, 280);
-    S_L2 = std::clamp(S_L2, 0, 440);
+    if (S_L1 < target_length1) S_L1 += std::min(step_size, target_length1 - S_L1);
+    else if (S_L1 > target_length1) S_L1 -= std::min(step_size, S_L1 - target_length1);
+
+    if (S_H2 < target_height2) S_H2 += std::min(step_size, target_height2 - S_H2);
+    else if (S_H2 > target_height2) S_H2 -= std::min(step_size, S_H2 - target_height2);
+
+    if (S_L2 < target_length2) S_L2 += std::min(step_size, target_length2 - S_L2);
+    else if (S_L2 > target_length2) S_L2 -= std::min(step_size, S_L2 - target_length2);
+
+    if (S_H1 < 0) S_H1 = 0;
+    if (S_H1 > 280) S_H1 = 280;
+    if (S_L1 < 0) S_L1 = 0;
+    if (S_L1 > 440) S_L1 = 440;
+    if (S_H2 < 0) S_H2 = 0;
+    if (S_H2 > 280) S_H2 = 280;
+    if (S_L2 < 0) S_L2 = 0;
+    if (S_L2 > 440) S_L2 = 440;
 
     msg.height1 = S_H1;
     msg.length1 = S_L1;
@@ -119,8 +129,7 @@ void timer_callback() {
 
     pub_cmd_cut_pliers_->publish(msg);
     send_data();
-}
-
+  }
 
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::Publisher<custom_msgs::msg::CmdCutPliers>::SharedPtr pub_cmd_cut_pliers_;
@@ -198,19 +207,19 @@ int main(int argc, char *argv[])
   auto minimal_subscriber = std::make_shared<MinimalSubscriber>();
   auto cmd_cut_pliers_publisher = std::make_shared<CmdCutPliersPublisher>();
 
-      rclcpp::Rate loop_rate(50);//设置循环间隔，即代码执行频率 150 HZ,
+      rclcpp::Rate loop_rate(150);//设置循环间隔，即代码执行频率 150 HZ,
       while(rclcpp::ok()){
            receive_and_process_data(); //接收并处理来自下位机的数据     
                        
 				    // 調用 spin_some 函數處理 ROS 回調
-          //  rclcpp::spin_some(minimal_subscriber);
+           rclcpp::spin_some(minimal_subscriber);
            rclcpp::spin_some(cmd_cut_pliers_publisher);
           //  rclcpp::spin(cmd_cut_pliers_publisher);
 
            process_and_send_data(aa);//处理键盘的指令并发送数据到下位机            
 
 
-        //  loop_rate.sleep();//循环延时时间             
+         loop_rate.sleep();//循环延时时间             
       }
       
 /*$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$*/     
@@ -465,7 +474,7 @@ void initialize_arms()
     S_C2 = 0;  // 爪子2張開
 
     send_data(); // 發送初始化數據到下位機
-    // RCLCPP_INFO(rclcpp::get_logger("initialize_arms"), "Arms initialized with default values.");
+    RCLCPP_INFO(rclcpp::get_logger("initialize_arms"), "Arms initialized with default values.");
 }
 
 

@@ -1,7 +1,7 @@
 <launch>
     <!-- 啟動採摘器節點 -->
     <node
-        name="manipulator_controller"
+        name="cut_pliers_controller"
         pkg="cut_pliers"
         exec="psub_and_RT"
         output="screen">

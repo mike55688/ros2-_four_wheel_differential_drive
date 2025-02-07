@@ -1,6 +1,6 @@
 <launch>
     <node name="four_wheel_robot_controller" pkg="car_demo" exec="car_demo_psub_and_RT" output="screen">
-        <param name="serial_port" value="/dev/ttyUSB0" />
+        <param name="serial_port" value="/dev/ttyUSB1" />
         <param name="baud_rate" value="115200" />
         <param name="odom_topic" value="/wheel_odom" />
         <param name="node_name" value="four_wheel_robot_controller" />
