@@ -65,64 +65,162 @@ uint8_t R_C2;
 /*###################################################################################
   CmdCutPliersPublisher 節點：訂閱 /cmd_cut_pliers topic 並發送數據到下位機
 ###################################################################################*/
+// class CmdCutPliersPublisher : public rclcpp::Node
+// {
+// public:
+//   CmdCutPliersPublisher()
+//       : Node("cmd_cut_pliers_publisher_" + std::to_string(std::rand() % 1000)),
+//         count_(0), height1(0), length1(0),
+//         target_height1(0), target_length1(0),
+//         claw1(false), step_size(10)
+//   {
+//     pub_cmd_cut_pliers_ = this->create_publisher<custom_msgs::msg::CmdCutPliers>("/cmd_cut_pliers", 10);
+
+//     sub_cmd_cut_pliers_ = this->create_subscription<custom_msgs::msg::CmdCutPliers>(
+//         "/cmd_cut_pliers", 10, std::bind(&CmdCutPliersPublisher::cmd_cut_pliers_callback, this, _1));
+
+//     timer_ = this->create_wall_timer(100ms, std::bind(&CmdCutPliersPublisher::timer_callback, this));
+//   }
+
+// private:
+//   // 當收到 /cmd_cut_pliers 訊息時，更新手臂1目標高度、長度、爪子狀態與使能狀態
+//   void cmd_cut_pliers_callback(const custom_msgs::msg::CmdCutPliers::SharedPtr msg) {
+//     target_height1 = msg->height1;
+//     target_length1 = msg->length1;
+//     S_C1 = msg->claw1;
+//     S_En1 = 1;
+//     S_En2 = 1;
+//   }
+
+//   // 定時回呼：邊界檢查後將數據封包並呼叫 send_data() 發送到下位機
+//   void timer_callback() {
+//     auto msg = custom_msgs::msg::CmdCutPliers();
+
+//     // 一次到位：設定手臂1的目標高度與長度
+//     S_H1 = target_height1;
+//     S_L1 = target_length1;
+
+//     // 邊界檢查
+//     S_H1 = std::clamp(S_H1, 0, 280);
+//     S_L1 = std::clamp(S_L1, 0, 440);
+
+//     msg.height1 = S_H1;
+//     msg.length1 = S_L1;
+//     msg.claw1 = S_C1;
+
+//     pub_cmd_cut_pliers_->publish(msg);
+//     send_data();
+//   }
+
+//   rclcpp::TimerBase::SharedPtr timer_;
+//   rclcpp::Publisher<custom_msgs::msg::CmdCutPliers>::SharedPtr pub_cmd_cut_pliers_;
+//   rclcpp::Subscription<custom_msgs::msg::CmdCutPliers>::SharedPtr sub_cmd_cut_pliers_;
+
+//   int height1, length1;
+//   int target_height1, target_length1;
+//   int step_size;
+//   bool claw1;
+//   size_t count_;
+// };
+
+/*###################################################################################
+  CmdCutPliersPublisher 節點：訂閱 /cmd_cut_pliers topic 並發送數據到下位機 OK
+###################################################################################*/
 class CmdCutPliersPublisher : public rclcpp::Node
 {
 public:
   CmdCutPliersPublisher()
       : Node("cmd_cut_pliers_publisher_" + std::to_string(std::rand() % 1000)),
-        count_(0), height1(0), length1(0),
-        target_height1(0), target_length1(0),
-        claw1(false), step_size(10)
+        target_height1(20), target_length1(-1), last_valid_length_(10), claw1(false), allow_retract_(false)
   {
-    pub_cmd_cut_pliers_ = this->create_publisher<custom_msgs::msg::CmdCutPliers>("/cmd_cut_pliers", 10);
-
+    clock_ = this->get_clock();  // ✅ 使用 ROS2 Clock
     sub_cmd_cut_pliers_ = this->create_subscription<custom_msgs::msg::CmdCutPliers>(
-        "/cmd_cut_pliers", 10, std::bind(&CmdCutPliersPublisher::cmd_cut_pliers_callback, this, _1));
+        "/cmd_cut_pliers", 1,
+        std::bind(&CmdCutPliersPublisher::cmd_cut_pliers_callback, this, std::placeholders::_1));
 
-    timer_ = this->create_wall_timer(100ms, std::bind(&CmdCutPliersPublisher::timer_callback, this));
+    timer_ = this->create_wall_timer(
+        std::chrono::milliseconds(100), std::bind(&CmdCutPliersPublisher::timer_callback, this));
   }
 
 private:
-  // 當收到 /cmd_cut_pliers 訊息時，更新手臂1目標高度、長度、爪子狀態與使能狀態
-  void cmd_cut_pliers_callback(const custom_msgs::msg::CmdCutPliers::SharedPtr msg) {
-    target_height1 = msg->height1;
-    target_length1 = msg->length1;
-    S_C1 = msg->claw1;
-    S_En1 = 1;
-    S_En2 = 1;
+  int target_height1;
+  int target_length1;
+  int last_valid_length_;
+  bool claw1;
+  bool allow_retract_;
+  rclcpp::Clock::SharedPtr clock_;  // ✅ 使用 ROS2 Clock
+
+  rclcpp::Subscription<custom_msgs::msg::CmdCutPliers>::SharedPtr sub_cmd_cut_pliers_;
+  rclcpp::TimerBase::SharedPtr timer_;
+
+  void cmd_cut_pliers_callback(const custom_msgs::msg::CmdCutPliers::SharedPtr msg)
+  {
+      bool updated = false;
+  
+      // 🚀 **前進模式**
+      if (msg->mode == 0) {  
+          if (!allow_retract_ && msg->length1 >= last_valid_length_) {  
+              if (target_length1 < msg->length1) { // ✅ 確保 target_length1 只能變大
+                  target_length1 = msg->length1;
+                  last_valid_length_ = target_length1;
+                  updated = true;
+              } else {
+                  RCLCPP_WARN(this->get_logger(), "⚠ 忽略前進指令，因為目標長度 (%d) 小於當前長度 (%d)", 
+                              msg->length1, last_valid_length_);
+              }
+          }
+      } 
+      // 🔄 **後退模式**
+      else if (msg->mode == 1) {  
+          if (msg->length1 < last_valid_length_) {  // **只允許長度變小**
+              target_length1 = msg->length1;
+              last_valid_length_ = msg->length1;
+              updated = true;
+          } else {
+              RCLCPP_WARN(this->get_logger(), "⚠ 忽略後退指令，因為目標長度 (%d) 比當前長度 (%d) 更大", 
+                          msg->length1, last_valid_length_);
+          }
+      }
+  
+      // ✅ **更新高度**
+      if (msg->height1 >= 0 && target_height1 != msg->height1) {
+          target_height1 = msg->height1;
+          updated = true;
+      }
+  
+      // ✅ **更新剪鉗狀態**
+      if (claw1 != msg->claw1) {
+          claw1 = msg->claw1;
+          updated = true;
+      }
+  
+      if (updated) {
+          RCLCPP_INFO(this->get_logger(), "✅ 目標更新: height=%d, length=%d, mode=%d", 
+                      target_height1, target_length1, msg->mode);
+      }
   }
+  
+    
 
-  // 定時回呼：邊界檢查後將數據封包並呼叫 send_data() 發送到下位機
-  void timer_callback() {
-    auto msg = custom_msgs::msg::CmdCutPliers();
+  void timer_callback()
+  {
+    rclcpp::Time current_time = clock_->now();  // ✅ 統一時間來源
 
-    // 一次到位：設定手臂1的目標高度與長度
-    S_H1 = target_height1;
-    S_L1 = target_length1;
+    if (allow_retract_) {
+        S_L1 = std::max(target_length1, 10); // ✅ **允許縮短**
+    } else {
+        S_L1 = std::max(last_valid_length_, 10); // ❌ **確保不會影響縮回**
+    }
 
-    // 邊界檢查
-    S_H1 = std::clamp(S_H1, 0, 280);
-    S_L1 = std::clamp(S_L1, 0, 440);
+    S_H1 = std::clamp(target_height1, 0, 280);
+    S_C1 = claw1;
 
-    msg.height1 = S_H1;
-    msg.length1 = S_L1;
-    msg.claw1 = S_C1;
+    RCLCPP_INFO(this->get_logger(), "📢 [%f] 發送數據: height=%d, length=%d, claw=%s",
+                current_time.seconds(), S_H1, S_L1, S_C1 ? "True" : "False");
 
-    pub_cmd_cut_pliers_->publish(msg);
     send_data();
   }
-
-  rclcpp::TimerBase::SharedPtr timer_;
-  rclcpp::Publisher<custom_msgs::msg::CmdCutPliers>::SharedPtr pub_cmd_cut_pliers_;
-  rclcpp::Subscription<custom_msgs::msg::CmdCutPliers>::SharedPtr sub_cmd_cut_pliers_;
-
-  int height1, length1;
-  int target_height1, target_length1;
-  int step_size;
-  bool claw1;
-  size_t count_;
 };
-
 
 //
 /*###################################################################################
@@ -134,7 +232,7 @@ public:
   ArmStatusPublisher()
       : Node("arm_status_publisher")
   {
-    pub_arm_status_ = this->create_publisher<custom_msgs::msg::CmdCutPliers>("/arm_current_status", 10);
+    pub_arm_status_ = this->create_publisher<custom_msgs::msg::CmdCutPliers>("/arm_current_status", 1);
     timer_ = this->create_wall_timer(100ms, std::bind(&ArmStatusPublisher::timer_callback, this));
   }
 
@@ -144,9 +242,9 @@ private:
     auto msg = custom_msgs::msg::CmdCutPliers();
     msg.height1 = R_H1;   // 來自 receive_and_process_data() 更新的手臂高度
     msg.length1 = R_L1;   // 來自 receive_and_process_data() 更新的手臂長度
-    msg.claw1 = (R_C1 != 0);  // 根據 R_C1 判斷爪子狀態，非 0 為 true
+    msg.claw1 = S_C1;  // 根據 R_C1 判斷爪子狀態，非 0 為 true
     pub_arm_status_->publish(msg);
-    RCLCPP_INFO(this->get_logger(), "Publishing arm status: height=%d, length=%d, claw=%d", R_H1, R_L1, (R_C1 != 0));
+    // RCLCPP_INFO(this->get_logger(), "Publishing arm status: height=%d, length=%d, claw=%d", R_H1, R_L1, (R_C1 != 0));
   }
 
   rclcpp::Publisher<custom_msgs::msg::CmdCutPliers>::SharedPtr pub_arm_status_;
@@ -191,7 +289,7 @@ int main(int argc, char *argv[])
     ros_ser.open();
   }
   catch(serial::IOException &e) {
-    std::cout << "unable to open" << std::endl;
+    std::cerr << "Unable to open serial port" << std::endl;
     return -1;
   }
   if (ros_ser.isOpen()) {
@@ -200,32 +298,42 @@ int main(int argc, char *argv[])
     return -1;
   }
   
-  // 初始化手臂1參數
+  // 初始化手臂參數
   initialize_arms();
 
+  // 建立各個節點物件
   auto minimal_subscriber = std::make_shared<MinimalSubscriber>();
   auto cmd_cut_pliers_publisher = std::make_shared<CmdCutPliersPublisher>();
   auto arm_status_publisher = std::make_shared<ArmStatusPublisher>();
 
-  
-  rclcpp::Rate loop_rate(50);
+  // 使用 MultiThreadedExecutor 同時執行多個節點
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(minimal_subscriber);
+  executor.add_node(cmd_cut_pliers_publisher);
+  executor.add_node(arm_status_publisher);
 
-  while (rclcpp::ok()){
-    
+  // 啟動一個執行緒來持續 spin 這些節點
+  std::thread spin_thread([&executor]() {
+    executor.spin();
+  });
+
+  // 主迴圈：每 20 毫秒處理一次下位機數據
+  rclcpp::Rate loop_rate(150);
+  while (rclcpp::ok()) {
     receive_and_process_data();  // 接收並處理下位機數據     
-    rclcpp::spin_some(cmd_cut_pliers_publisher);
-    rclcpp::spin_some(arm_status_publisher);  // ✅ 讓手臂當前狀態定期發布
-
-    // process_and_send_data(aa);     // 根據鍵盤指令處理並發送數據
+    // 若需要根據鍵盤指令處理並發送數據，可在此呼叫 process_and_send_data(...)
+    // loop_rate.sleep();
   }
       
-  // 結束前將手臂1停止運動
+  // 結束前將手臂停止
   S_En1 = 0; // 停止高度控制
   S_En2 = 0; // 停止長度控制
-  S_C1 = 0;  // 爪子張開
+  S_C1 = 0;  // 爪子張開（依需求設定）
   send_data();
   ros_ser.close();
+
   rclcpp::shutdown();
+  spin_thread.join();
   return 0;
 }
 
@@ -262,20 +370,29 @@ void send_data(void)
               tbuf[10]=	S_L1>>16;//
               tbuf[11]=	S_L1>>24;//
 
+              tbuf[12]=	S_H2>>0;// 
+              tbuf[13]=	S_H2>>8;//
+              tbuf[14]=	S_H2>>16;//
+              tbuf[15]=	S_H2>>24;//
 
-
+              tbuf[16]=	S_L2>>0;// 
+              tbuf[17]=	S_L2>>8;//
+              tbuf[18]=	S_L2>>16;//
+              tbuf[19]=	S_L2>>24;//
 							
               tbuf[20]=	S_En1;//
               tbuf[21]=	S_En2;//
-
+							tbuf[22]=	S_En3;//
+              tbuf[23]=	S_En4;//
 							
               tbuf[24]=	S_C1;//
+              tbuf[25]=	S_C2;//
 							
     for(uint8_t i=0;i<26;i++)tbuf[26]+=tbuf[i];//计算校验和 
   try{ros_ser.write(tbuf, 27);}//发送数据下位机(数组，字节数) 
   catch (serial::IOException& e){std::cout<<"Unable to send data through serial port"<<std::endl;}
   //如果发送数据失败，打印错误信息  
-}  
+}
 /*###################################################################################
   process_and_send_data() 函數：根據鍵盤輸入控制手臂1運動
     - 按鍵 'u'：手臂1上升 (高度增加)
