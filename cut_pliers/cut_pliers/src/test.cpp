@@ -131,7 +131,7 @@ class CmdCutPliersPublisher : public rclcpp::Node
 public:
   CmdCutPliersPublisher()
       : Node("cmd_cut_pliers_publisher_" + std::to_string(std::rand() % 1000)),
-        target_height1(20), target_length1(-1), last_valid_length_(10), claw1(false), allow_retract_(false)
+        target_height1(140), target_length1(-1), last_valid_length_(10), claw1(false), allow_retract_(false)
   {
     clock_ = this->get_clock();  // ✅ 使用 ROS2 Clock
     sub_cmd_cut_pliers_ = this->create_subscription<custom_msgs::msg::CmdCutPliers>(
@@ -281,7 +281,7 @@ int main(int argc, char *argv[])
   rclcpp::init(argc, argv);
 
   // 初始化串口
-  ros_ser.setPort("/dev/ttyUSB0");
+  ros_ser.setPort("/dev/ttyUSB1");
   ros_ser.setBaudrate(115200);
   serial::Timeout to = serial::Timeout::simpleTimeout(100);
   ros_ser.setTimeout(to);

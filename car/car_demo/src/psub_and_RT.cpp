@@ -269,7 +269,7 @@ public:
         : Node("vel_publisher_" + std::to_string(std::rand() % 1000)), vx(0.0), vy(0.0), vth(0.0)
     {
         publisher_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 2);
-        timer_ = this->create_wall_timer(25ms, std::bind(&Velpublisher::timer_callback, this));
+        timer_ = this->create_wall_timer(10ms, std::bind(&Velpublisher::timer_callback, this));
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
             "/cmd_vel", 10, std::bind(&Velpublisher::cmd_vel_callback, this, std::placeholders::_1));
     }
@@ -365,7 +365,7 @@ int main(int argc, char *argv[]) {
     rclcpp::init(argc, argv);  // 初始化 ROS2
 
     // 配置串口
-    ros_ser.setPort("/dev/ttyUSB1");
+    ros_ser.setPort("/dev/ttyUSB0");
     ros_ser.setBaudrate(115200);
     serial::Timeout to = serial::Timeout::simpleTimeout(100);
     ros_ser.setTimeout(to);
